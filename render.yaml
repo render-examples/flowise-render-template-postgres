@@ -46,9 +46,14 @@ projects:
                 fromDatabase:
                   name: flowise-db
                   property: password
+              # Render's internal Postgres connection (the one fromDatabase
+              # wires up) does not require TLS — traffic stays on the
+              # private network. We disable TLS in Flowise's client because
+              # Flowise's DataSource.ts hard-codes strict cert verification
+              # whenever DATABASE_SSL=true without a CA cert (see
+              # packages/server/src/DataSource.ts::getDatabaseSSLFromEnv),
+              # so DATABASE_REJECT_UNAUTHORIZED=false alone would not work.
               - key: DATABASE_SSL
-                value: "true"
-              - key: DATABASE_REJECT_UNAUTHORIZED
                 value: "false"
 
               - key: FLOWISE_SECRETKEY_OVERWRITE

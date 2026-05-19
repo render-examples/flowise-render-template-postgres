@@ -113,8 +113,7 @@ The Postgres connection is wired via `fromDatabase` references — you never typ
 
 | Env var | Default | What it does |
 |---------|---------|--------------|
-| `DATABASE_SSL` | `true` | TLS to Postgres; leave on |
-| `DATABASE_REJECT_UNAUTHORIZED` | `false` | Required for Render's managed Postgres certificate chain |
+| `DATABASE_SSL` | `false` | TLS to Postgres. Off by default because `fromDatabase` wires the **internal** Postgres hostname, which lives on Render's private network and does not require TLS. See [Security](#security) for why we don't use TLS + cert verification here. |
 | `LOG_LEVEL` | `info` | Set to `warn` or `error` to quiet noisy logs, `debug` while triaging |
 | `NUMBER_OF_PROXIES` | `1` | Number of upstream proxies (Render's edge counts as 1; leave as-is) |
 | `TRUST_PROXY` | `true` | Required so Flowise reads `X-Forwarded-*` correctly behind Render's edge |
@@ -310,13 +309,20 @@ Notable migrations across Flowise major versions:
 - TypeORM migration failed — check service logs for migration errors. The DB may be in a half-migrated state; restore the latest snapshot and retry.
 - `PORT` mismatch — confirm `PORT=3000` is set.
 
-### `self signed certificate in certificate chain`
+### `Error during Data Source initialization: self-signed certificate` (or `self signed certificate in certificate chain`)
 
-**Symptom:** Service crashes on startup with Postgres TLS errors.
+**Symptom:** Service crashes on startup. Logs show:
 
-**Cause:** `DATABASE_REJECT_UNAUTHORIZED=true` against Render's certificate chain.
+```
+[ERROR]: ❌ [server]: Error during Data Source initialization: self-signed certificate
+[ERROR]: Error: Auth secrets not initialized. Call initAuthSecrets() first.
+```
 
-**Fix:** Confirm `DATABASE_REJECT_UNAUTHORIZED=false` is set (the template defaults to this). If you specifically need strict TLS verification, add the Render CA cert to `DATABASE_SSL_KEY_BASE64`.
+Render's port scanner also reports `No open ports detected` because the process exits before binding.
+
+**Cause:** Flowise's TypeORM client (see `packages/server/src/DataSource.ts::getDatabaseSSLFromEnv`) hard-codes strict TLS cert verification when `DATABASE_SSL=true` is set without an accompanying `DATABASE_SSL_KEY_BASE64` CA bundle. `DATABASE_REJECT_UNAUTHORIZED=false` is ignored in that code path. Render's internal Postgres endpoint serves a cert signed by Render's internal CA (not the system trust store), so the handshake fails. The `Auth secrets not initialized` error in the second stack trace is a cascading failure from the failed DB connection.
+
+**Fix:** Set `DATABASE_SSL=false` in `render.yaml`. The template ships with this default. The `fromDatabase` references wire up the internal Postgres hostname, which is on Render's private network and does not require TLS. You should only enable `DATABASE_SSL=true` if you also supply `DATABASE_SSL_KEY_BASE64` with the appropriate CA cert.
 
 ### `No open ports detected` + `Reached heap limit Allocation failed - JavaScript heap out of memory`
 
@@ -387,7 +393,7 @@ Yes, if you don't need file uploads or you're ready to wire S3 from the start. R
 ## Security
 
 - **Encryption at rest:** Render's managed Postgres and persistent disks are encrypted at the storage layer. Flowise additionally encrypts stored credentials at the application layer using `FLOWISE_SECRETKEY_OVERWRITE`.
-- **Encryption in transit:** TLS terminates at Render's edge for the `*.onrender.com` hostname and any custom domains. The web service → Postgres connection is TLS via `DATABASE_SSL=true`. Outbound calls to LLM providers go over TLS.
+- **Encryption in transit:** TLS terminates at Render's edge for the `*.onrender.com` hostname and any custom domains. The web service → Postgres connection runs over Render's private network with `DATABASE_SSL=false` — TLS is not required for internal Postgres on Render, and Flowise's TypeORM client hard-codes strict cert verification when `DATABASE_SSL=true` without a CA cert bundle (it ignores `DATABASE_REJECT_UNAUTHORIZED=false` in that path), so enabling TLS without supplying Render's internal CA via `DATABASE_SSL_KEY_BASE64` causes startup to fail with `self-signed certificate`. Outbound calls to LLM providers go over TLS.
 - **Network exposure:** The web service is public on port `$PORT`. Postgres is reachable only over Render's private network from the web service — there is no public Postgres endpoint enabled by this template. The disk is local to the web service host.
 - **Secret rotation:** Safe to rotate: `LOG_LEVEL`, optional config knobs, SMTP credentials. **Dangerous to rotate**: `FLOWISE_SECRETKEY_OVERWRITE` (breaks saved credentials), `JWT_*_SECRET` / `EXPRESS_SESSION_SECRET` / `TOKEN_HASH_SECRET` (invalidates sessions and invites), `DATABASE_PASSWORD` (Render manages this; do not change manually).
 - **Vulnerability reports:**
