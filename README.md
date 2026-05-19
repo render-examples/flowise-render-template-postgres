@@ -51,7 +51,7 @@ What people build on this template:
 
 ```mermaid
 flowchart LR
-  user["User browser"] --> web["flowise<br/>(web service, starter)"]
+  user["User browser"] --> web["flowise<br/>(web service, standard)"]
   web --> db[("flowise-db<br/>Postgres, basic-256mb")]
   web --> disk[/"flowise-uploads<br/>2 GB disk<br/>/root/.flowise"/]
   web -.->|optional outbound| llm["LLM providers<br/>(OpenAI, Anthropic, etc.)"]
@@ -59,9 +59,11 @@ flowchart LR
 
 | Resource | Type | Plan | Purpose |
 |----------|------|------|---------|
-| `flowise` | Web service (`runtime: image`) | `starter` | Runs `docker.io/flowiseai/flowise:latest`, serves the UI and API on `$PORT` |
+| `flowise` | Web service (`runtime: image`) | `standard` (2 GB / 1 CPU) | Runs `docker.io/flowiseai/flowise:latest`, serves the UI and API on `$PORT` |
 | `flowise-db` | Managed Postgres | `basic-256mb` | Durable storage for chatflows, credentials (Flowise-encrypted), users, sessions |
 | `flowise-uploads` | Persistent disk | 2 GB | File uploads and rolled logs only — removable once you move uploads to S3 |
+
+The `standard` plan is the floor: Flowise's Node process exceeds the `starter` plan's 512 MB during startup and OOMs before binding the port. See [Caveats](#caveats-and-limitations) for the details.
 
 Region defaults to **`oregon`**. The web service, database, and disk must all be in the same region — override `region:` in `render.yaml` if you want a different one.
 
@@ -130,20 +132,20 @@ Full upstream config reference: [Flowise Environment Variables](https://docs.flo
 
 | Resource | Plan | Monthly cost |
 |----------|------|--------------|
-| `flowise` web service | `starter` (0.5 CPU, 512 MB) | $7.00 |
+| `flowise` web service | `standard` (1 CPU, 2 GB) | $25.00 |
 | `flowise-db` Postgres | `basic-256mb` (256 MB RAM, 1 GB storage) | $6.00 |
 | `flowise-uploads` disk | 2 GB SSD | $0.20 |
-| **Total** | | **~$13.20** |
+| **Total** | | **~$31.20** |
 
 Pricing source: [render.com/pricing](https://render.com/pricing).
 
-**Cheaper**
+**Why standard is the floor**
 
-- The cheapest production-shaped Flowise setup looks like this. To go lower, use the [SQLite variant](https://github.com/render-examples/flowise-render-template) at ~$7.50/mo.
+The `starter` plan (512 MB) is not enough for Flowise — the Node process OOMs during startup before it can bind a port. `standard` (2 GB) is the smallest plan on which Flowise deploys cleanly.
 
 **Scale up**
 
-- Bump the web service to `standard` (1 CPU, 2 GB) once you have steady concurrent users.
+- Bump the web service to `pro` (2 CPU, 4 GB) for heavy chatflow execution or large RAG ingests.
 - Bump Postgres to `basic-1gb` or `pro` when you see CPU/connection-limit pressure.
 - Add a [read replica](https://render.com/docs/databases#read-replicas) for read-heavy workloads.
 - Move uploads to S3, drop the disk, set `scaling.numInstances: 2+` — see [Scale horizontally](#scale-horizontally).
@@ -316,6 +318,14 @@ Notable migrations across Flowise major versions:
 
 **Fix:** Confirm `DATABASE_REJECT_UNAUTHORIZED=false` is set (the template defaults to this). If you specifically need strict TLS verification, add the Render CA cert to `DATABASE_SSL_KEY_BASE64`.
 
+### `No open ports detected` + `Reached heap limit Allocation failed - JavaScript heap out of memory`
+
+**Symptom:** Logs show Flowise starting (Data Source / migrations / Identity Manager init lines) followed by GC warnings, a `Reached heap limit Allocation failed` fatal error, and the service exits with status `139`. Render's port scanner gives up because the process keeps dying before binding.
+
+**Cause:** The web service is on the `starter` plan (512 MB), which is too small for Flowise's Node process at startup. Flowise blows through ~250 MB before Identity Manager finishes.
+
+**Fix:** Edit `render.yaml`, set `plan: standard` (2 GB / 1 CPU), commit, push. This template ships with `standard` already; you only hit this if you manually downgraded the plan. NODE_OPTIONS / `--max-old-space-size` tweaks alone are not enough — Flowise genuinely needs more RAM than `starter` provides.
+
 ### "too many clients" or connection pool exhausted
 
 **Symptom:** Postgres errors mentioning `too many connections` or `remaining connection slots are reserved`.
@@ -342,9 +352,9 @@ Notable migrations across Flowise major versions:
 
 ## FAQ
 
-### Can I run this on Render's free plan?
+### Can I run this on Render's free or starter plan?
 
-Not really. Managed Postgres has no free tier, and the free web service plan does not support persistent disks. The [SQLite variant](https://github.com/render-examples/flowise-render-template) gets closer to a free-tier setup, but even there the disk costs $0.50/mo. The cheapest production-shaped Flowise on Render is this template at ~$13.20/mo.
+No. The `starter` plan's 512 MB is below Flowise's minimum startup memory — the Node process OOMs before binding the port. The `free` plan additionally lacks persistent disks and managed Postgres has no free tier. `standard` (2 GB) is the floor for the web service regardless of variant. The cheapest production-shaped Flowise on Render is this template at ~$31.20/mo.
 
 ### Why both Postgres and a disk?
 
@@ -386,6 +396,7 @@ Yes, if you don't need file uploads or you're ready to wire S3 from the start. R
 
 ## Caveats and limitations
 
+- **Standard plan is the floor.** Flowise's Node process exceeds the `starter` plan's 512 MB during startup and OOMs before binding the port. The template uses `standard` (2 GB) so it deploys cleanly out of the box. Downgrading to `starter` will fail with `Reached heap limit Allocation failed - JavaScript heap out of memory` and `No open ports detected`.
 - **Single instance by default.** The 2 GB upload disk pins this template to one instance and restart-style deploys. Follow [Scale horizontally](#scale-horizontally) to unlock multi-instance + zero-downtime deploys.
 - **Image tag drift.** `latest` is mutable; subsequent deploys may behave differently than your first one. Pin a version for production.
 - **First image pull is slow.** ~90 seconds on cold caches. Subsequent deploys reuse the cached layer.
