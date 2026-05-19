@@ -2,7 +2,7 @@
 
 > Self-host Flowise to build LLM agents and workflows visually, with managed Postgres and a clear path to horizontal scaling.
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/render-examples/flowise-render-template-postgres)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy-template/api/github/start?template_repo=flowise-render-template-postgres)
 
 This template runs the official `flowiseai/flowise` Docker image on a Render web service backed by managed Postgres, with a small persistent disk only for file uploads and logs. It's production-shaped: Postgres handles the durable state, the disk handles file uploads (until you move them to S3), and every cryptographic secret is generated and persisted by Render so you can drop the disk later and scale horizontally. For a simpler single-user setup, use the [SQLite variant](https://github.com/render-examples/flowise-render-template) instead.
 
@@ -67,7 +67,7 @@ Region defaults to **`oregon`**. The web service, database, and disk must all be
 
 ## Quickstart
 
-1. Click **[Deploy to Render](https://render.com/deploy?repo=https://github.com/render-examples/flowise-render-template-postgres)**.
+1. Click **[Deploy to Render](https://render.com/deploy-template/api/github/start?template_repo=flowise-render-template-postgres)**.
 2. Authorize the Render GitHub App if prompted, choose a destination Git account, and let Render fork this template into your account.
 3. On the Blueprint Apply screen, confirm the resources (1 web service + 1 Postgres + 1 disk). No secrets to fill in — Render generates them for you.
 4. Click **Apply**. The first deploy takes ~30 seconds for Postgres provisioning, then ~90 seconds to pull the image, then ~30 seconds to boot.
