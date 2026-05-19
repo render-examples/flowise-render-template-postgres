@@ -1,0 +1,84 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+
+databases:
+  - name: flowise-db
+    plan: basic-256mb
+    region: oregon
+    databaseName: flowise
+    user: flowise
+
+services:
+  - type: web
+    name: flowise
+    runtime: image
+    plan: starter
+    region: oregon
+    image:
+      url: docker.io/flowiseai/flowise:latest
+    healthCheckPath: /api/v1/ping
+    previews:
+      generation: off
+    disk:
+      name: flowise-uploads
+      mountPath: /root/.flowise
+      sizeGB: 2
+    envVars:
+      - key: PORT
+        value: "3000"
+
+      - key: DATABASE_TYPE
+        value: postgres
+      - key: DATABASE_HOST
+        fromDatabase:
+          name: flowise-db
+          property: host
+      - key: DATABASE_PORT
+        fromDatabase:
+          name: flowise-db
+          property: port
+      - key: DATABASE_NAME
+        fromDatabase:
+          name: flowise-db
+          property: database
+      - key: DATABASE_USER
+        fromDatabase:
+          name: flowise-db
+          property: user
+      - key: DATABASE_PASSWORD
+        fromDatabase:
+          name: flowise-db
+          property: password
+      - key: DATABASE_SSL
+        value: "true"
+      - key: DATABASE_REJECT_UNAUTHORIZED
+        value: "false"
+
+      - key: FLOWISE_SECRETKEY_OVERWRITE
+        generateValue: true
+      - key: JWT_AUTH_TOKEN_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_TOKEN_SECRET
+        generateValue: true
+      - key: EXPRESS_SESSION_SECRET
+        generateValue: true
+      - key: TOKEN_HASH_SECRET
+        generateValue: true
+
+      - key: LOG_PATH
+        value: /root/.flowise/logs
+      - key: LOG_LEVEL
+        value: info
+
+      - key: STORAGE_TYPE
+        value: local
+      - key: BLOB_STORAGE_PATH
+        value: /root/.flowise/storage
+
+      - key: NUMBER_OF_PROXIES
+        value: "1"
+      - key: TRUST_PROXY
+        value: "true"
+      - key: SECURE_COOKIES
+        value: "true"
+      - key: DISABLE_FLOWISE_TELEMETRY
+        value: "true"
